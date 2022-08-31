@@ -12,6 +12,8 @@ pub struct HelpConfiguration<'a> {
     pub ephemeral: bool,
     /// Whether to list context menu commands as well
     pub show_context_menu_commands: bool,
+    /// Whether the help command is in an embed or not
+    pub colour: serenity::utils::Colour,
 }
 
 impl Default for HelpConfiguration<'_> {
@@ -20,6 +22,7 @@ impl Default for HelpConfiguration<'_> {
             extra_text_at_bottom: "",
             ephemeral: true,
             show_context_menu_commands: false,
+            colour: serenity::utils::Colour::from_rgb(0, 0, 0)
         }
     }
 }
@@ -73,9 +76,11 @@ async fn help_all_commands<U, E>(
             .push(cmd);
     }
 
-    let mut menu = String::from("```\n");
+    let mut menu = String::from("\n");
     for (category_name, commands) in categories {
+        menu += "**";
         menu += category_name.unwrap_or("Commands");
+        menu += "**";
         menu += ":\n";
         for command in commands {
             if command.hide_in_help {
@@ -132,12 +137,16 @@ async fn help_all_commands<U, E>(
         }
     }
 
-    menu += "\n";
-    menu += config.extra_text_at_bottom;
-    menu += "\n```";
+    // menu += "\n";
+    // menu += config.extra_text_at_bottom;
+    // menu += "\n```";
 
-    ctx.send(|b| b.content(menu).ephemeral(config.ephemeral))
-        .await?;
+    ctx.send(|b| b.ephemeral(config.ephemeral)
+       .embed(|b| b.title("Help").description(menu)
+       .colour(config.colour)
+       .footer(|f| f.text(config.extra_text_at_bottom)) 
+    )).await?;
+
     Ok(())
 }
 
