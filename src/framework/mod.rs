@@ -237,7 +237,7 @@ async fn raw_dispatch_event<U, E>(
                     let _: Result<_, _> = framework.user_data.set(user_data);
                 }
                 Err(error) => {
-                    (framework.options.on_error)(crate::FrameworkError::Setup { error }).await
+                    (framework.options.on_error)(crate::FrameworkError::Setup { error, framework, data_about_bot, ctx }).await
                 }
             }
         } else {
@@ -284,7 +284,7 @@ fn message_content_intent_sanity_check<U, E>(
         || prefix_options.stripped_dynamic_prefix.is_some();
     let can_receive_message_content = intents.contains(serenity::GatewayIntents::MESSAGE_CONTENT);
     if is_prefix_configured && !can_receive_message_content {
-        eprintln!("Warning: MESSAGE_CONTENT intent not set; prefix commands will not be received");
+        log::warn!("Warning: MESSAGE_CONTENT intent not set; prefix commands will not be received");
     }
 }
 
