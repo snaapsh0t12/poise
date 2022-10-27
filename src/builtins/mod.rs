@@ -31,7 +31,7 @@ pub async fn on_error<U, E: std::fmt::Display + std::fmt::Debug>(
 ) -> Result<(), serenity::Error> {
     match error {
         crate::FrameworkError::Setup { error, .. } => {
-            log::error!("Error in user data setup: {}", error)
+            log::error!("Error in user data setup: {}", error);
         }
         crate::FrameworkError::Listener { error, event, .. } => log::error!(
             "User event listener encountered an error on {} event: {}",
@@ -137,6 +137,23 @@ pub async fn on_error<U, E: std::fmt::Display + std::fmt::Debug>(
                 error
             );
         }
+        crate::FrameworkError::UnknownCommand {
+            msg_content,
+            prefix,
+            ..
+        } => {
+            log::warn!(
+                "Recognized prefix `{}`, but didn't recognize command name in `{}`",
+                prefix,
+                msg_content,
+            );
+        }
+        crate::FrameworkError::UnknownInteraction { interaction, .. } => {
+            log::warn!(
+                "received unknown interaction \"{}\"",
+                interaction.data().name
+            );
+        }
         crate::FrameworkError::__NonExhaustive => panic!(),
     }
 
@@ -145,7 +162,7 @@ pub async fn on_error<U, E: std::fmt::Display + std::fmt::Debug>(
 
 /// An autocomplete function that can be used for the command parameter in your help function.
 ///
-/// See examples/framework_usage for an example
+/// See `examples/framework_usage` for an example
 pub async fn autocomplete_command<'a, U, E>(
     ctx: crate::Context<'a, U, E>,
     partial: &'a str,
@@ -154,7 +171,7 @@ pub async fn autocomplete_command<'a, U, E>(
         .options()
         .commands
         .iter()
-        .filter(move |cmd| cmd.name.starts_with(&partial))
+        .filter(move |cmd| cmd.name.starts_with(partial))
         .map(|cmd| cmd.name.to_string())
 }
 
@@ -194,21 +211,28 @@ pub async fn servers<U, E>(ctx: crate::Context<'_, U, E>) -> Result<(), serenity
     }
 
     let guild_ids = ctx.discord().cache.guilds();
+    let mut num_unavailable_guilds = 0;
     let mut guilds = guild_ids
-        .into_iter()
-        .filter_map(|guild_id| {
+        .iter()
+        .map(|&guild_id| {
             ctx.discord().cache.guild_field(guild_id, |guild| Guild {
                 name: guild.name.clone(),
                 num_members: guild.member_count,
                 is_public: guild.features.iter().any(|x| x == "DISCOVERABLE"),
             })
         })
+        .filter_map(|guild| {
+            if guild.is_none() {
+                num_unavailable_guilds += 1;
+            }
+            guild
+        })
         .collect::<Vec<_>>();
     guilds.sort_by_key(|guild| u64::MAX - guild.num_members); // descending sort
 
     let mut num_private_guilds = 0;
     let mut num_private_guild_members = 0;
-    let mut response = format!("I am currently in {} servers!\n", guilds.len());
+    let mut response = format!("I am currently in {} servers!\n", guild_ids.len());
     for guild in guilds {
         if guild.is_public || show_private_guilds {
             let _ = writeln!(
@@ -226,6 +250,13 @@ pub async fn servers<U, E>(ctx: crate::Context<'_, U, E>) -> Result<(), serenity
             response,
             "- [{} private servers with {} members total]",
             num_private_guilds, num_private_guild_members
+        );
+    }
+    if num_unavailable_guilds > 0 {
+        let _ = writeln!(
+            response,
+            "- [{} unavailable servers (cache is not ready yet)]",
+            num_unavailable_guilds
         );
     }
 

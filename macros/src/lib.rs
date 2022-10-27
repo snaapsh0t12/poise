@@ -1,3 +1,7 @@
+/*!
+Procedural macros used in poise, like [`macro@command`]
+*/
+
 mod choice_parameter;
 mod command;
 mod modal;
@@ -45,11 +49,11 @@ for example for command-specific help (i.e. `~help command_name`). Escape newlin
 - `identifying_name`: Optionally, a unique identifier for this command for your personal usage
 - `category`: Category of this command which affects placement in the help command
 - `custom_data`: Arbitrary expression that will be boxed and stored in `Command::custom_data`
-- `global_cooldown`: Minimum duration between invocations, globally
-- `user_cooldown`: Minimum duration between invocations, per user
-- `guild_cooldown`: Minimum duration between invocations, per guild
-- `channel_cooldown`: Minimum duration between invocations, per channel
-- `member_cooldown`: Minimum duration between invocations, per guild member
+- `global_cooldown`: Minimum duration in seconds between invocations, globally
+- `user_cooldown`: Minimum duration in seconds between invocations, per user
+- `guild_cooldown`: Minimum duration in seconds between invocations, per guild
+- `channel_cooldown`: Minimum duration in seconds between invocations, per channel
+- `member_cooldown`: Minimum duration in seconds between invocations, per guild member
 
 # Function parameters
 
@@ -107,7 +111,7 @@ poise::Command {
 
 # Internals
 
-Internally, this attribute macro generates a function with a single [`poise::Command`]
+Internally, this attribute macro generates a function with a single `poise::Command`
 return type, which contains all data about this command. For example, it transforms a function of
 this form:
 ```rust
