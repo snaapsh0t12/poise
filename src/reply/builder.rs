@@ -17,8 +17,8 @@ pub struct CreateReply<'att> {
     pub components: Option<serenity::CreateComponents>,
     /// The allowed mentions for the message.
     pub allowed_mentions: Option<serenity::CreateAllowedMentions>,
-    /// The reference message this message is a reply to.
-    pub reference_message: Option<serenity::MessageReference>,
+    /// Whether this message is an inline reply.
+    pub reply: bool,
 }
 
 impl<'att> CreateReply<'att> {
@@ -65,11 +65,6 @@ impl<'att> CreateReply<'att> {
     /// Toggles whether the message is an ephemeral response (only invoking user can see it).
     ///
     /// This only has an effect in slash commands!
-    ///
-    /// If this is the initial response and this response
-    /// has previously been deferred, the ephemerality is decided by the defer operation. I.e.
-    /// if you deferred the response without enabling ephemeral, the initial response will not be
-    /// ephemeral.
     pub fn ephemeral(&mut self, ephemeral: bool) -> &mut Self {
         self.ephemeral = ephemeral;
         self
@@ -88,12 +83,13 @@ impl<'att> CreateReply<'att> {
         self
     }
 
-    /// Set the reference message this message is a reply to.
-    pub fn reference_message(
-        &mut self,
-        reference: impl Into<serenity::MessageReference>,
-    ) -> &mut Self {
-        self.reference_message = Some(reference.into());
+    /// Makes this message an inline reply to another message like [`serenity::Message::reply`]
+    /// (prefix-only, because slash commands are always inline replies anyways).
+    ///
+    /// To disable the ping, set [`Self::allowed_mentions`] with
+    /// [`serenity::CreateAllowedMentions::replied_user`] set to false.
+    pub fn reply(&mut self, reply: bool) -> &mut Self {
+        self.reply = reply;
         self
     }
 }
@@ -110,7 +106,7 @@ impl<'att> CreateReply<'att> {
             components,
             ephemeral,
             allowed_mentions,
-            reference_message: _, // can't reply to a message in interactions
+            reply: _, // can't reply to a message in interactions
         } = self;
 
         if let Some(content) = content {
@@ -145,7 +141,7 @@ impl<'att> CreateReply<'att> {
             components,
             ephemeral,
             allowed_mentions,
-            reference_message: _,
+            reply: _,
         } = self;
 
         if let Some(content) = content {
@@ -177,7 +173,7 @@ impl<'att> CreateReply<'att> {
             components,
             ephemeral: _, // can't edit ephemerality in retrospect
             allowed_mentions,
-            reference_message: _,
+            reply: _,
         } = self;
 
         if let Some(content) = content {
@@ -207,7 +203,7 @@ impl<'att> CreateReply<'att> {
             components,
             ephemeral: _, // not supported in prefix
             allowed_mentions,
-            reference_message: _, // can't edit reference message afterwards
+            reply: _, // can't edit reference message afterwards
         } = self;
 
         if let Some(content) = content {
@@ -234,7 +230,11 @@ impl<'att> CreateReply<'att> {
     }
 
     /// Serialize this response builder to a [`serenity::CreateMessage`]
-    pub fn to_prefix(self, m: &mut serenity::CreateMessage<'att>) {
+    pub fn to_prefix(
+        self,
+        m: &mut serenity::CreateMessage<'att>,
+        invocation_message: &serenity::Message,
+    ) {
         let crate::CreateReply {
             content,
             embeds,
@@ -242,7 +242,7 @@ impl<'att> CreateReply<'att> {
             components,
             ephemeral: _, // not supported in prefix
             allowed_mentions,
-            reference_message,
+            reply,
         } = self;
 
         if let Some(content) = content {
@@ -261,8 +261,8 @@ impl<'att> CreateReply<'att> {
                 c
             });
         }
-        if let Some(reference_message) = reference_message {
-            m.reference_message(reference_message);
+        if reply {
+            m.reference_message(invocation_message);
         }
 
         for attachment in attachments {

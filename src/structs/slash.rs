@@ -90,7 +90,7 @@ impl<'a> ApplicationCommandOrAutocompleteInteraction<'a> {
 pub struct ApplicationContext<'a, U, E> {
     /// Serenity's context, like HTTP or cache
     #[derivative(Debug = "ignore")]
-    pub discord: &'a serenity::Context,
+    pub serenity_context: &'a serenity::Context,
     /// The interaction which triggered this command execution.
     pub interaction: ApplicationCommandOrAutocompleteInteraction<'a>,
     /// Slash command arguments
@@ -108,6 +108,8 @@ pub struct ApplicationContext<'a, U, E> {
     /// Useful if you need the list of commands, for example for a custom help command
     #[derivative(Debug = "ignore")]
     pub framework: crate::FrameworkContext<'a, U, E>,
+    /// If the invoked command was a subcommand, these are the parent commands, ordered top down.
+    pub parent_commands: &'a [&'a crate::Command<U, E>],
     /// The command object which is the current command
     pub command: &'a crate::Command<U, E>,
     /// Your custom user data
@@ -144,7 +146,7 @@ impl<U, E> ApplicationContext<'_, U, E> {
             .load(std::sync::atomic::Ordering::SeqCst)
         {
             interaction
-                .create_interaction_response(self.discord, |f| {
+                .create_interaction_response(self.serenity_context, |f| {
                     f.kind(serenity::InteractionResponseType::DeferredChannelMessageWithSource)
                         .interaction_response_data(|b| b.ephemeral(ephemeral))
                 })

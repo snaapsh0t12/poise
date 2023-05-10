@@ -84,7 +84,10 @@ async fn main() {
             general::totalsize(),
             general::modal(),
             general::punish(),
+            #[cfg(feature = "cache")]
             general::servers(),
+            general::reply(),
+            general::add(),
             context_menu::user_info(),
             context_menu::echo(),
             autocomplete::greet(),
@@ -92,7 +95,8 @@ async fn main() {
             checks::modonly(),
             checks::delete(),
             checks::ferrisparty(),
-            checks::add(),
+            checks::cooldowns(),
+            checks::minmax(),
             checks::get_guild_name(),
             checks::only_in_dms(),
             checks::lennyface(),
@@ -132,9 +136,12 @@ async fn main() {
                 Ok(true)
             })
         }),
-        listener: |_ctx, event, _framework, _data| {
+        /// Enforce command checks even for owners (enforced by default)
+        /// Set to true to bypass checks, which is useful for testing
+        skip_checks_for_owners: false,
+        event_handler: |_ctx, event, _framework, _data| {
             Box::pin(async move {
-                println!("Got an event in listener: {:?}", event.name());
+                println!("Got an event in event handler: {:?}", event.name());
                 Ok(())
             })
         },
@@ -142,9 +149,13 @@ async fn main() {
     };
 
     poise::Framework::builder()
-        .token(var("TOKEN").expect("Missing `TOKEN` env var, see README for more information."))
-        .user_data_setup(move |_ctx, _ready, _framework| {
+        .token(
+            var("DISCORD_TOKEN")
+                .expect("Missing `DISCORD_TOKEN` env var, see README for more information."),
+        )
+        .setup(move |_ctx, _ready, _framework| {
             Box::pin(async move {
+                println!("Logged in as {}", _ready.user.name);
                 Ok(Data {
                     votes: Mutex::new(HashMap::new()),
                 })

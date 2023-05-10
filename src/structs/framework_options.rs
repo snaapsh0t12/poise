@@ -23,6 +23,8 @@ pub struct FrameworkOptions<U, E> {
     /// If individual commands add their own check, both callbacks are run and must return true.
     #[derivative(Debug = "ignore")]
     pub command_check: Option<fn(crate::Context<'_, U, E>) -> BoxFuture<'_, Result<bool, E>>>,
+    /// If set to true, skips command checks if command was issued by [`FrameworkOptions::owners`]
+    pub skip_checks_for_owners: bool,
     /// Default set of allowed mentions to use for all responses
     ///
     /// By default, user pings are allowed and role pings and everyone pings are filtered
@@ -45,13 +47,16 @@ pub struct FrameworkOptions<U, E> {
     /// Called on every Discord event. Can be used to react to non-command events, like messages
     /// deletions or guild updates.
     #[derivative(Debug = "ignore")]
-    pub listener: for<'a> fn(
+    pub event_handler: for<'a> fn(
         &'a serenity::Context,
         &'a crate::Event<'a>,
         crate::FrameworkContext<'a, U, E>,
         // TODO: redundant with framework
         &'a U,
     ) -> BoxFuture<'a, Result<(), E>>,
+    /// Renamed to [`Self::event_handler`]!
+    #[deprecated = "renamed to event_handler"]
+    pub listener: (),
     /// Prefix command specific options.
     pub prefix_options: crate::PrefixFrameworkOptions<U, E>,
     /// User IDs which are allowed to use owners_only commands
@@ -83,6 +88,7 @@ where
     E: std::fmt::Display + std::fmt::Debug + Send,
 {
     fn default() -> Self {
+        #[allow(deprecated)] // we need to set the listener field
         Self {
             commands: Vec::new(),
             on_error: |error| {
@@ -92,10 +98,12 @@ where
                     }
                 })
             },
-            listener: |_, _, _, _| Box::pin(async { Ok(()) }),
+            event_handler: |_, _, _, _| Box::pin(async { Ok(()) }),
+            listener: (),
             pre_command: |_| Box::pin(async {}),
             post_command: |_| Box::pin(async {}),
             command_check: None,
+            skip_checks_for_owners: false,
             allowed_mentions: Some({
                 let mut f = serenity::CreateAllowedMentions::default();
                 // Only support direct user pings by default

@@ -27,7 +27,7 @@ pub async fn send_reply<'att, U, E>(
     builder: impl for<'a> FnOnce(&'a mut crate::CreateReply<'att>) -> &'a mut crate::CreateReply<'att>,
 ) -> Result<crate::ReplyHandle<'_>, serenity::Error> {
     Ok(match ctx {
-        crate::Context::Prefix(ctx) => crate::ReplyHandle(super::ReplyHandleInner::Prefix(
+        crate::Context::Prefix(ctx) => super::ReplyHandle(super::ReplyHandleInner::Prefix(
             crate::send_prefix_reply(ctx, builder).await?,
         )),
         crate::Context::Application(ctx) => crate::send_application_reply(ctx, builder).await?,
@@ -54,30 +54,20 @@ pub async fn send_application_reply<'att, U, E>(
     ctx: crate::ApplicationContext<'_, U, E>,
     builder: impl for<'a> FnOnce(&'a mut crate::CreateReply<'att>) -> &'a mut crate::CreateReply<'att>,
 ) -> Result<crate::ReplyHandle<'_>, serenity::Error> {
-    let mut data = crate::CreateReply {
-        ephemeral: ctx.command.ephemeral,
-        allowed_mentions: ctx.framework.options().allowed_mentions.clone(),
-        ..Default::default()
-    };
-    builder(&mut data);
-    _send_application_reply(ctx, data).await
+    _send_application_reply(ctx, ctx.reply_builder(builder)).await
 }
 
 /// private version of [`send_application_reply`] that isn't generic over the builder to minimize monomorphization-related codegen bloat
 async fn _send_application_reply<'a, U, E>(
     ctx: crate::ApplicationContext<'a, U, E>,
-    mut data: crate::CreateReply<'_>,
+    data: crate::CreateReply<'_>,
 ) -> Result<crate::ReplyHandle<'a>, serenity::Error> {
     let interaction = match ctx.interaction {
         crate::ApplicationCommandOrAutocompleteInteraction::ApplicationCommand(x) => x,
         crate::ApplicationCommandOrAutocompleteInteraction::Autocomplete(_) => {
-            return Ok(crate::ReplyHandle(super::ReplyHandleInner::Autocomplete))
+            return Ok(super::ReplyHandle(super::ReplyHandleInner::Autocomplete))
         }
     };
-
-    if let Some(callback) = ctx.framework.options().reply_callback {
-        callback(ctx.into(), &mut data);
-    }
 
     let has_sent_initial_response = ctx
         .has_sent_initial_response
@@ -86,7 +76,7 @@ async fn _send_application_reply<'a, U, E>(
     let followup = if has_sent_initial_response {
         Some(Box::new(
             interaction
-                .create_followup_message(ctx.discord, |f| {
+                .create_followup_message(ctx.serenity_context, |f| {
                     data.to_slash_followup_response(f);
                     f
                 })
@@ -94,7 +84,7 @@ async fn _send_application_reply<'a, U, E>(
         ))
     } else {
         interaction
-            .create_interaction_response(ctx.discord, |r| {
+            .create_interaction_response(ctx.serenity_context, |r| {
                 r.kind(serenity::InteractionResponseType::ChannelMessageWithSource)
                     .interaction_response_data(|f| {
                         data.to_slash_initial_response(f);
@@ -108,8 +98,8 @@ async fn _send_application_reply<'a, U, E>(
         None
     };
 
-    Ok(crate::ReplyHandle(crate::ReplyHandleInner::Application {
-        http: &ctx.discord.http,
+    Ok(super::ReplyHandle(super::ReplyHandleInner::Application {
+        http: &ctx.serenity_context.http,
         interaction,
         followup,
     }))
@@ -120,43 +110,35 @@ pub async fn send_prefix_reply<'att, U, E>(
     ctx: crate::PrefixContext<'_, U, E>,
     builder: impl for<'a> FnOnce(&'a mut crate::CreateReply<'att>) -> &'a mut crate::CreateReply<'att>,
 ) -> Result<Box<serenity::Message>, serenity::Error> {
-    let mut reply = crate::CreateReply {
-        ephemeral: ctx.command.ephemeral,
-        allowed_mentions: ctx.framework.options().allowed_mentions.clone(),
-        ..Default::default()
-    };
-    builder(&mut reply);
-    _send_prefix_reply(ctx, reply).await
+    _send_prefix_reply(ctx, ctx.reply_builder(builder)).await
 }
 
 /// private version of [`send_prefix_reply`] that isn't generic over the builder to minimize monomorphization-related codegen bloat
 async fn _send_prefix_reply<'a, U, E>(
     ctx: crate::PrefixContext<'_, U, E>,
-    mut reply: crate::CreateReply<'a>,
+    reply: crate::CreateReply<'a>,
 ) -> Result<Box<serenity::Message>, serenity::Error> {
-    if let Some(callback) = ctx.framework.options().reply_callback {
-        callback(ctx.into(), &mut reply);
-    }
-
     // This must only return None when we _actually_ want to reuse the existing response! There are
     // no checks later
     let lock_edit_tracker = || {
-        if ctx.command.reuse_response {
-            if let Some(edit_tracker) = &ctx.framework.options().prefix_options.edit_tracker {
-                return Some(edit_tracker.write().unwrap());
-            }
+        if let Some(edit_tracker) = &ctx.framework.options().prefix_options.edit_tracker {
+            return Some(edit_tracker.write().unwrap());
         }
         None
     };
 
-    let existing_response = lock_edit_tracker()
-        .as_mut()
-        .and_then(|t| t.find_bot_response(ctx.msg.id))
-        .cloned();
+    let existing_response = if ctx.command.reuse_response {
+        lock_edit_tracker()
+            .as_mut()
+            .and_then(|t| t.find_bot_response(ctx.msg.id))
+            .cloned()
+    } else {
+        None
+    };
 
     Ok(Box::new(if let Some(mut response) = existing_response {
         response
-            .edit(ctx.discord, |f| {
+            .edit(ctx.serenity_context, |f| {
                 // Reset the message. We don't want leftovers of the previous message (e.g. user
                 // sends a message with `.content("abc")` in a track_edits command, and the edited
                 // message happens to contain embeds, we don't want to keep those embeds)
@@ -172,8 +154,9 @@ async fn _send_prefix_reply<'a, U, E>(
             .await?;
 
         // If the entry still exists after the await, update it to the new contents
+        // We don't check ctx.command.reuse_response because it's true anyways in this branch
         if let Some(mut edit_tracker) = lock_edit_tracker() {
-            edit_tracker.set_bot_response(ctx.msg, response.clone());
+            edit_tracker.set_bot_response(ctx.msg, response.clone(), ctx.command.track_deletion);
         }
 
         response
@@ -181,13 +164,15 @@ async fn _send_prefix_reply<'a, U, E>(
         let new_response = ctx
             .msg
             .channel_id
-            .send_message(ctx.discord, |m| {
-                reply.to_prefix(m);
+            .send_message(ctx.serenity_context, |m| {
+                reply.to_prefix(m, ctx.msg);
                 m
             })
             .await?;
+        // We don't check ctx.command.reuse_response because we need to store bot responses for
+        // track_deletion too
         if let Some(track_edits) = &mut lock_edit_tracker() {
-            track_edits.set_bot_response(ctx.msg, new_response.clone());
+            track_edits.set_bot_response(ctx.msg, new_response.clone(), ctx.command.track_deletion);
         }
 
         new_response

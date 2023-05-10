@@ -9,11 +9,11 @@ use crate::serenity_prelude as serenity;
 ///
 /// ```rust,no_run
 /// # use poise::serenity_prelude as serenity;
-/// # async fn foo<U, E>(ctx: poise::Context<'_, U, E>) -> Result<(), serenity::Error> {
+/// # async fn foo(ctx: poise::Context<'_, (), ()>) -> Result<(), serenity::Error> {
 /// let commands = &ctx.framework().options().commands;
 /// let create_commands = poise::builtins::create_application_commands(commands);
 ///
-/// serenity::Command::set_global_application_commands(ctx.discord(), |b| {
+/// serenity::Command::set_global_application_commands(ctx, |b| {
 ///     *b = create_commands; // replace the given builder with the one prepared by poise
 ///     b
 /// }).await?;
@@ -47,6 +47,43 @@ pub fn create_application_commands<U, E>(
     }
     commands_builder
 }
+
+/// Registers the given list of application commands to Discord as global commands.
+///
+/// Thin wrapper around [`create_application_commands`] that funnels the returned builder into
+/// [`serenity::Command::set_global_application_commands`].
+pub async fn register_globally<U, E>(
+    http: impl AsRef<serenity::Http>,
+    commands: &[crate::Command<U, E>],
+) -> Result<(), serenity::Error> {
+    let builder = create_application_commands(commands);
+    serenity::Command::set_global_application_commands(http, |b| {
+        *b = builder;
+        b
+    })
+    .await?;
+    Ok(())
+}
+
+/// Registers the given list of application commands to Discord as guild-specific commands.
+///
+/// Thin wrapper around [`create_application_commands`] that funnels the returned builder into
+/// [`serenity::GuildId::set_application_commands`].
+pub async fn register_in_guild<U, E>(
+    http: impl AsRef<serenity::Http>,
+    commands: &[crate::Command<U, E>],
+    guild_id: serenity::GuildId,
+) -> Result<(), serenity::Error> {
+    let builder = create_application_commands(commands);
+    guild_id
+        .set_application_commands(http, |b| {
+            *b = builder;
+            b
+        })
+        .await?;
+    Ok(())
+}
+
 /// _Note: you probably want [`register_application_commands_buttons`] instead; it's easier and more
 /// powerful_
 ///
@@ -76,7 +113,7 @@ pub async fn register_application_commands<U, E>(
     if global {
         ctx.say(format!("Registering {} commands...", num_commands))
             .await?;
-        serenity::Command::set_global_application_commands(ctx.discord(), |b| {
+        serenity::Command::set_global_application_commands(ctx, |b| {
             *b = commands_builder;
             b
         })
@@ -93,7 +130,7 @@ pub async fn register_application_commands<U, E>(
         ctx.say(format!("Registering {} commands...", num_commands))
             .await?;
         guild_id
-            .set_application_commands(ctx.discord(), |b| {
+            .set_application_commands(ctx, |b| {
                 *b = commands_builder;
                 b
             })
@@ -183,7 +220,7 @@ pub async fn register_application_commands_buttons<U, E>(
     let interaction = reply
         .message()
         .await?
-        .await_component_interaction(ctx.discord())
+        .await_component_interaction(ctx)
         .author_id(ctx.author().id)
         .await;
 
@@ -221,14 +258,14 @@ pub async fn register_application_commands_buttons<U, E>(
                 num_commands
             ))
             .await?;
-            serenity::Command::set_global_application_commands(ctx.discord(), |b| {
+            serenity::Command::set_global_application_commands(ctx, |b| {
                 *b = create_commands;
                 b
             })
             .await?;
         } else {
             ctx.say(":gear: Unregistering global commands...").await?;
-            serenity::Command::set_global_application_commands(ctx.discord(), |b| b).await?;
+            serenity::Command::set_global_application_commands(ctx, |b| b).await?;
         }
     } else {
         let guild_id = match ctx.guild_id() {
@@ -245,16 +282,14 @@ pub async fn register_application_commands_buttons<U, E>(
             ))
             .await?;
             guild_id
-                .set_application_commands(ctx.discord(), |b| {
+                .set_application_commands(ctx, |b| {
                     *b = create_commands;
                     b
                 })
                 .await?;
         } else {
             ctx.say(":gear: Unregistering guild commands...").await?;
-            guild_id
-                .set_application_commands(ctx.discord(), |b| b)
-                .await?;
+            guild_id.set_application_commands(ctx, |b| b).await?;
         }
     }
 

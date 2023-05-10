@@ -1,12 +1,14 @@
 #![cfg_attr(doc_nightly, feature(doc_cfg, doc_auto_cfg))]
 #![doc(test(attr(deny(deprecated))))]
-#![warn(rust_2018_idioms)]
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-#![allow(clippy::type_complexity)]
 // native #[non_exhaustive] is awful because you can't do struct update syntax with it (??)
 #![allow(clippy::manual_non_exhaustive)]
-
+#![allow(clippy::type_complexity)]
+#![warn(
+    clippy::missing_docs_in_private_items,
+    clippy::unused_async,
+    rust_2018_idioms,
+    missing_docs
+)]
 /*!
 Poise is an opinionated Discord bot framework with a few distinctive features:
 - edit tracking: when user edits their message, automatically update bot response
@@ -36,9 +38,8 @@ means using serenity, so here's a couple tips:
 ## `impl Trait` parameters
 
 Many serenity functions take an argument of type [`impl CacheHttp`](serenity::CacheHttp) or
-[`impl AsRef<Http>`](serenity::Http). Here, you commonly pass in
-[`&serenity::Context`](serenity::Context), which you can get from
-[`poise::Context`](crate::Context) via [`ctx.discord()`](crate::Context::discord)
+[`impl AsRef<Http>`](serenity::Http). You can pass in any type that imlements these traits, like
+[`crate::Context`] or [`serenity::Context`].
 
 ## Gateway intents
 
@@ -57,8 +58,8 @@ To set multiple gateway events, use the OR operator:
 You can run Discord actions outside of commands by cloning and storing [`serenity::CacheAndHttp`]/
 [`Arc<serenity::Http>`](serenity::Http)/[`Arc<serenity::Cache>`](serenity::Cache). You can get
 those either from [`serenity::Context`] (passed to
-[`user_data_setup`](crate::FrameworkBuilder::user_data_setup) and all commands via
-[`ctx.discord()`](crate::Context::discord)) or before starting the framework via
+[`setup`](crate::FrameworkBuilder::setup) and all commands via
+[`ctx.serenity_framework()`](crate::Context::discord)) or before starting the framework via
 [`framework.client()`](crate::Framework::client)[`.cache_and_http`](serenity::Client::cache_and_http).
 
 Pass your `CacheAndHttp` or `Arc<Http>` to serenity functions in place of the usual
@@ -203,7 +204,7 @@ async fn my_huge_ass_command(
 fn my_huge_ass_command_help() -> String {
     String::from("\
 Example usage:
-~my_huge_ass_command 127.0.0.1 @kangalioo `i = i + 1` my_flag rest of the message")
+~my_huge_ass_command 127.0.0.1 @kangalio `i = i + 1` my_flag rest of the message")
 }
 
 async fn check(ctx: Context<'_>) -> Result<bool, Error> {
@@ -230,7 +231,7 @@ async fn error_handler(error: poise::FrameworkError<'_, Data, Error>) {
 // Use `Framework::builder()` to create a framework builder and supply basic data to the framework:
 poise::Framework::builder()
     .token("...")
-    .user_data_setup(|_, _, _| Box::pin(async move {
+    .setup(|_, _, _| Box::pin(async move {
         // construct user data here (invoked when bot connects to Discord)
         Ok(())
     }))
@@ -280,7 +281,7 @@ functions manually:
 - [`serenity::Command::set_global_application_commands`]
 - [`serenity::GuildId::set_application_commands`]
 
-For example, you could call this function in [`FrameworkBuilder::user_data_setup`] to automatically
+For example, you could call this function in [`FrameworkBuilder::setup`] to automatically
 register commands on startup. Also see the docs of [`builtins::create_application_commands`].
 
 The lowest level of abstraction for registering commands is [`Command::create_as_slash_command`]
@@ -311,6 +312,70 @@ serenity::Member, serenity::UserId, serenity::ReactionType, serenity::GatewayInt
 # );
 ```
 
+## Unit testing
+
+Unit testing a Discord bot is difficult, because mocking the Discord API is an uphill battle.
+Your best bet for unit testing a Discord bot is to extract the "business logic" into a separate
+function - the part of your commands that doesn't call serenity functions - and unit test that.
+
+Example:
+
+```rust
+# type Error = Box<dyn std::error::Error>;
+# type Context<'a> = poise::Context<'a, (), Error>;
+#[poise::command(slash_command)]
+pub async fn calc(ctx: Context<'_>, expr: String) -> Result<(), Error> {
+    let ops: &[(char, fn(f64, f64) -> f64)] = &[
+        ('+', |a, b| a + b), ('-', |a, b| a - b), ('*', |a, b| a * b), ('/', |a, b| a / b)
+    ];
+    for &(operator, operator_fn) in ops {
+        if let Some((a, b)) = expr.split_once(operator) {
+            let result: f64 = (operator_fn)(a.trim().parse()?, b.trim().parse()?);
+            ctx.say(format!("Result: {}", result)).await?;
+            return Ok(());
+        }
+    }
+    ctx.say("No valid operator found in expression!").await?;
+    Ok(())
+}
+```
+
+Can be transformed into
+
+```rust
+# type Error = Box<dyn std::error::Error>;
+# type Context<'a> = poise::Context<'a, (), Error>;
+fn calc_inner(expr: &str) -> Option<f64> {
+    let ops: &[(char, fn(f64, f64) -> f64)] = &[
+        ('+', |a, b| a + b), ('-', |a, b| a - b), ('*', |a, b| a * b), ('/', |a, b| a / b)
+    ];
+    for &(operator, operator_fn) in ops {
+        if let Some((a, b)) = expr.split_once(operator) {
+            let result: f64 = (operator_fn)(a.trim().parse().ok()?, b.trim().parse().ok()?);
+            return Some(result);
+        }
+    }
+    None
+}
+
+#[poise::command(slash_command)]
+pub async fn calc(ctx: Context<'_>, expr: String) -> Result<(), Error> {
+    match calc_inner(&expr) {
+        Some(result) => ctx.say(format!("Result: {}", result)).await?,
+        None => ctx.say("Failed to evaluate expression!").await?,
+    };
+    Ok(())
+}
+
+// Now we can test the function!!!
+#[test]
+fn test_calc() {
+    assert_eq!(calc_inner("4 + 5"), Some(9.0));
+    assert_eq!(calc_inner("4 / 5"), Some(0.2));
+    assert_eq!(calc_inner("4 ^ 5"), None);
+}
+```
+
 # About the weird name
 I'm bad at names. Google lists "poise" as a synonym to "serenity" which is the Discord library
 underlying this framework, so that's what I chose.
@@ -330,7 +395,11 @@ pub mod slash_argument;
 pub mod structs;
 pub mod track_edits;
 mod util;
-pub use poise_macros as macros;
+pub mod macros {
+    //! Procedural macros used in poise, like [`command`]
+    #[doc(inline)]
+    pub use poise_macros::*;
+}
 
 #[doc(no_inline)]
 pub use {
@@ -385,6 +454,7 @@ pub mod serenity_prelude {
                 },
             },
             event::*,
+            guild::automod::*,
             prelude::*,
         },
         prelude::*,
@@ -398,3 +468,33 @@ use serenity_prelude as serenity; // private alias for crate root docs intradoc-
 ///
 /// An owned future has the `'static` lifetime.
 pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+/// Internal wrapper function for catch_unwind that respects the `handle_panics` feature flag
+async fn catch_unwind_maybe<T>(
+    fut: impl std::future::Future<Output = T>,
+) -> Result<T, Option<String>> {
+    #[cfg(feature = "handle_panics")]
+    let res = futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(fut))
+        .await
+        .map_err(|e| {
+            if let Some(s) = e.downcast_ref::<&str>() {
+                Some(s.to_string())
+            } else if let Ok(s) = e.downcast::<String>() {
+                Some(*s)
+            } else {
+                None
+            }
+        });
+    #[cfg(not(feature = "handle_panics"))]
+    let res = Ok(fut.await);
+    res
+}
+
+#[cfg(test)]
+mod tests {
+    fn _assert_send_sync<T: Send + Sync>() {}
+
+    fn _test_framework_error_send_sync<'a, U: Send + Sync + 'static, E: Send + Sync + 'static>() {
+        _assert_send_sync::<crate::FrameworkError<'a, U, E>>();
+    }
+}

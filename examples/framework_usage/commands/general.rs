@@ -117,7 +117,7 @@ pub async fn boop(ctx: Context<'_>) -> Result<(), Error> {
     .await?;
 
     let mut boop_count = 0;
-    while let Some(mci) = serenity::CollectComponentInteraction::new(ctx.discord())
+    while let Some(mci) = serenity::CollectComponentInteraction::new(ctx)
         .author_id(ctx.author().id)
         .channel_id(ctx.channel_id())
         .timeout(std::time::Duration::from_secs(120))
@@ -127,12 +127,10 @@ pub async fn boop(ctx: Context<'_>) -> Result<(), Error> {
         boop_count += 1;
 
         let mut msg = mci.message.clone();
-        msg.edit(ctx.discord(), |m| {
-            m.content(format!("Boop count: {}", boop_count))
-        })
-        .await?;
+        msg.edit(ctx, |m| m.content(format!("Boop count: {}", boop_count)))
+            .await?;
 
-        mci.create_interaction_response(ctx.discord(), |ir| {
+        mci.create_interaction_response(ctx, |ir| {
             ir.kind(serenity::InteractionResponseType::DeferredUpdateMessage)
         })
         .await?;
@@ -321,8 +319,31 @@ pub async fn punish(
     Ok(())
 }
 
+#[cfg(feature = "cache")]
 #[poise::command(slash_command, prefix_command)]
 pub async fn servers(ctx: Context<'_>) -> Result<(), Error> {
     poise::builtins::servers(ctx).await?;
+    Ok(())
+}
+
+#[poise::command(slash_command, prefix_command)]
+pub async fn reply(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.send(|b| {
+        b.content(format!("Hello {}!", ctx.author().name))
+            .reply(true)
+    })
+    .await?;
+    Ok(())
+}
+
+/// Add two numbers
+#[poise::command(prefix_command, track_edits, slash_command)]
+pub async fn add(
+    ctx: Context<'_>,
+    #[description = "First operand"] a: f64,
+    #[description = "Second operand"] b: f32,
+) -> Result<(), Error> {
+    ctx.say(format!("Result: {}", a + b as f64)).await?;
+
     Ok(())
 }

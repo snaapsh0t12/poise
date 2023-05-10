@@ -48,7 +48,6 @@ pub struct Command<U, E> {
     /// Whether to hide this command in help menus.
     pub hide_in_help: bool,
     /// Short description of the command. Displayed inline in help menus and similar.
-    // TODO: rename to description
     pub description: Option<String>,
     /// Localized descriptions with locale string as the key (slash-only)
     pub description_localizations: std::collections::HashMap<String, String>,
@@ -108,6 +107,8 @@ pub struct Command<U, E> {
     pub aliases: &'static [&'static str],
     /// Whether to rerun the command if an existing invocation message is edited (prefix-only)
     pub invoke_on_edit: bool,
+    /// Whether to delete the bot response if an existing invocation message is deleted (prefix-only)
+    pub track_deletion: bool,
     /// Whether to broadcast a typing indicator while executing this commmand (prefix-only)
     pub broadcast_typing: bool,
 
