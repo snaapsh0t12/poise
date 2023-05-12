@@ -36,7 +36,7 @@ pub async fn on_error<U, E: std::fmt::Display + std::fmt::Debug>(
 ) -> Result<(), serenity::Error> {
     match error {
         crate::FrameworkError::Setup { error, .. } => {
-            log::error!("Error in user data setup: {}", error);
+            eprintln!("Error in user data setup: {}", error);
         }
         crate::FrameworkError::EventHandler { error, event, .. } => log::error!(
             "User event event handler encountered an error on {} event: {}",
@@ -47,6 +47,19 @@ pub async fn on_error<U, E: std::fmt::Display + std::fmt::Debug>(
             let error = error.to_string();
             eprintln!("An error occured in a command: {}", error);
             ctx.say(error).await?;
+        }
+        crate::FrameworkError::SubcommandRequired { ctx } => {
+            let subcommands = ctx
+                .command()
+                .subcommands
+                .iter()
+                .map(|s| &*s.name)
+                .collect::<Vec<_>>();
+            let response = format!(
+                "You must specify one of the following subcommands: {}",
+                subcommands.join(", ")
+            );
+            ctx.send(|b| b.content(response).ephemeral(true)).await?;
         }
         crate::FrameworkError::CommandPanic { ctx, payload: _ } => {
             // Not showing the payload to the user because it may contain sensitive info
@@ -172,7 +185,7 @@ pub async fn on_error<U, E: std::fmt::Display + std::fmt::Debug>(
                 interaction.data().name
             );
         }
-        crate::FrameworkError::__NonExhaustive => panic!(),
+        crate::FrameworkError::__NonExhaustive(unreachable) => match unreachable {},
     }
 
     Ok(())
@@ -222,12 +235,12 @@ pub async fn servers<U, E>(ctx: crate::Context<'_, U, E>) -> Result<(), serenity
         is_public: bool,
     }
 
-    let guild_ids = ctx.sc().cache.guilds();
+    let guild_ids = ctx.cache().guilds();
     let mut num_unavailable_guilds = 0;
     let mut guilds = guild_ids
         .iter()
         .map(|&guild_id| {
-            ctx.sc().cache.guild_field(guild_id, |guild| Guild {
+            ctx.cache().guild_field(guild_id, |guild| Guild {
                 name: guild.name.clone(),
                 num_members: guild.member_count,
                 is_public: guild.features.iter().any(|x| x == "DISCOVERABLE"),
